@@ -43,13 +43,13 @@ Basic wiring includes -- diagram image will be soon:
 
 ### Design Robot 
 <div align="center">
-  <img src="transporter-design-1.png" alt="Design Robot 1" width="400"/>
-  <img src="transporter-design-2.png" alt="Design Robot 2" width="400"/>
+  <img src="images/transporter-design-1.png" alt="Design Robot 1" width="400"/>
+  <img src="images/transporter-design-2.png" alt="Design Robot 2" width="400"/>
 </div>
 
 ### Final Build  
 <div align="center">
-  <img src="transporter-final.png" alt="Final Robot" width="500"/>
+  <img src="images/transporter-final.png" alt="Final Robot" width="500"/>
 </div>
 
 ## 🎉 Competition Success
@@ -57,6 +57,6 @@ Basic wiring includes -- diagram image will be soon:
 Here’s our transporter robot that helped us bring home the prize at the Mechanical and Biosystems Fair 2024!
 
 <div align="center">
-  <img src="transporter-competition.png" alt="Winning Competition" width="700"/>
+  <img src="images/transporter-competition.png" alt="Winning Competition" width="700"/>
 </div>
 ```
