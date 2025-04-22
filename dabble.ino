@@ -1,3 +1,10 @@
+/*
+  This code is designed for use with the Dabble mobile application by STEMpedia, Arduino ESP Bluetooth - Dabble
+  Dabble is a Bluetooth-based control app that allows users to send commands from a smartphone to Arduino-based robots.
+  Make sure to install the Dabble library from STEMpedia and pair your Bluetooth module (like HC-05 or HC-06) with your phone.
+*/
+
+
 #define CUSTOM_SETTINGS
 #define INCLUDE_GAMEPAD_MODULE
 #include <DabbleESP32.h>
