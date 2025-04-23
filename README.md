@@ -42,10 +42,15 @@ Basic wiring includes -- diagram image will be soon:
 ## Documentation
 
 ### Design Robot 
-<div align="center">
-  <img src="images/transporter-design-1.png" alt="Design Robot 1" width="400"/>
-  <img src="images/transporter-design-2.png" alt="Design Robot 2" width="400"/>
-</div>
+<p align="center">
+  <a href="https://skfb.ly/pwtIJ">
+    <img src="images/transporter-design-2.png" alt="Robot 3D Preview" width="500">
+  </a>
+</p>
+
+<p align="center">
+  🔗 Click the image to view the interactive 3D model on Sketchfab.
+</p>
 
 ### Final Build  
 <div align="center">
