@@ -1,7 +1,7 @@
 #include <ESP32Servo.h>
 #include <Ps3Controller.h>
 
-
+// Ini MAC Address PS3 lama cc:7b:5c:28:a9:b6
 // PIN untuk motor
 const int enableRightMotor = 32;
 const int rightMotorPin1 = 26;
