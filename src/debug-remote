@@ -1,0 +1,345 @@
+#include <WiFi.h>
+#include <WiFiUdp.h>
+#include <ESP32Servo.h>
+
+// Konfigurasi WiFi
+const char* ssid = "RobotNetwork";
+const char* password = "password123";
+const int udpPort = 4210;
+
+// Pin motor dan servo
+const int motorLeftA = 16;  // Pin kontrol motor kiri A
+const int motorLeftB = 17;  // Pin kontrol motor kiri B
+const int motorRightA = 18; // Pin kontrol motor kanan A
+const int motorRightB = 19; // Pin kontrol motor kanan B
+const int servoLiftPin = 21;   // Pin untuk servo pengangkat
+const int servoGripperPin = 22; // Pin untuk servo gripper
+
+// PWM channels
+const int pwmChannelLeftA = 0;
+const int pwmChannelLeftB = 1;
+const int pwmChannelRightA = 2;
+const int pwmChannelRightB = 3;
+
+// PWM properties
+const int freq = 5000;
+const int resolution = 8; // 8-bit resolution (0-255)
+
+// Mode untuk sekuens tombol switch joystick
+enum GripperMode {
+  OPEN_AND_DOWN = 0,
+  CLOSE_AND_UP = 1
+};
+
+// Objek servo (tetap dideklarasikan meskipun belum digunakan)
+Servo servoLift;
+Servo servoGripper;
+
+// Status servo
+int liftPosition = 90;    // 0-180 degrees: 90 = default, 0 = turun, 180 = naik
+bool gripperOpen = true;  // true = terbuka, false = tertutup
+GripperMode currentGripperMode = OPEN_AND_DOWN;
+
+// Status motor (untuk debug)
+int leftMotorSpeed = 0;   // -255 to 255
+int rightMotorSpeed = 0;  // -255 to 255
+
+WiFiUDP udp;
+char packetBuffer[255];
+
+// Variabel untuk monitoring
+unsigned long lastPacketTime = 0;
+unsigned long packetCounter = 0;
+unsigned long lastStatusTime = 0;
+bool motorConnected = false; // Tandai bahwa motor belum terhubung
+
+// Variabel untuk menyimpan nilai terakhir yang diterima
+int lastXVal = 0;
+int lastYVal = 0;
+bool lastBtnGreen = false;
+bool lastBtnGrey = false;
+bool lastBtnBrown = false;
+bool lastSwitchPressed = false;
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000); // Tambahkan delay untuk memastikan Serial sudah siap
+  
+  Serial.println("\n=============================================");
+  Serial.println("ESP32 ROBOT CONTROLLER - DEBUG MODE");
+  Serial.println("=============================================");
+  
+  // Cetak mode debug motor
+  Serial.println("MOTOR STATUS: NOT CONNECTED (Debug Mode)");
+  Serial.println("Pins reserved for motor control:");
+  Serial.println("- Motor Left A: GPIO" + String(motorLeftA));
+  Serial.println("- Motor Left B: GPIO" + String(motorLeftB));
+  Serial.println("- Motor Right A: GPIO" + String(motorRightA));
+  Serial.println("- Motor Right B: GPIO" + String(motorRightB));
+  
+  // Setup pin motor sebagai OUTPUT
+  pinMode(motorLeftA, OUTPUT);
+  pinMode(motorLeftB, OUTPUT);
+  pinMode(motorRightA, OUTPUT);
+  pinMode(motorRightB, OUTPUT);
+
+  // Komentar setup servo juga karena belum terhubung
+  Serial.println("SERVO STATUS: NOT CONNECTED (Debug Mode)");
+  Serial.println("Pins reserved for servo control:");
+  Serial.println("- Servo Lift: GPIO" + String(servoLiftPin));
+  Serial.println("- Servo Gripper: GPIO" + String(servoGripperPin));
+  
+  // Setup WiFi
+  Serial.println("\nConnecting to WiFi AP '" + String(ssid) + "'...");
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+  
+  unsigned long connectStartTime = millis();
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    // Timeout after 20 seconds
+    if (millis() - connectStartTime > 20000) {
+      Serial.println("\nFailed to connect to WiFi! Please check settings or reboot.");
+      // Bisa tambahkan logika reconnect di sini
+      break;
+    }
+  }
+  
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nConnected to WiFi!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+    
+    Serial.println("\nInitializing UDP on port " + String(udpPort));
+    udp.begin(udpPort);
+    Serial.println("Ready to receive commands from Remote Controller");
+  }
+  
+  Serial.println("\nINFO: If no data is being received, check the following:");
+  Serial.println("1. Make sure both ESP32 devices are connected to the same network");
+  Serial.println("2. Verify the UDP port configuration (should be " + String(udpPort) + ")");
+  Serial.println("3. Check that the robot IP address (" + WiFi.localIP().toString() + ") is correctly set on remote");
+  Serial.println("4. Ensure the format of the data packet is correct");
+  
+  Serial.println("=============================================");
+}
+
+void loop() {
+  // Cek status WiFi dan tampilkan jika terputus
+  if (WiFi.status() != WL_CONNECTED) {
+    static unsigned long lastWiFiCheck = 0;
+    if (millis() - lastWiFiCheck > 5000) { // Setiap 5 detik
+      Serial.println("WARNING: WiFi disconnected! Attempting to reconnect...");
+      WiFi.reconnect();
+      lastWiFiCheck = millis();
+    }
+  }
+  
+  // Cek packet UDP yang masuk
+  int packetSize = udp.parsePacket();
+  static unsigned long lastDebugTime = 0;
+  
+  if (packetSize) {
+    // Ada paket yang diterima
+    lastPacketTime = millis();
+    packetCounter++;
+    
+    // Baca paket
+    int len = udp.read(packetBuffer, 255);
+    if (len > 0) {
+      packetBuffer[len] = 0; // Null terminate
+    }
+    
+    // Print raw packet untuk debugging
+    if (millis() - lastDebugTime > 1000) { // Setiap 1 detik
+      Serial.println("\nRAW PACKET: '" + String(packetBuffer) + "'");
+      lastDebugTime = millis();
+    }
+    
+    // Parse data perintah
+    String dataString = String(packetBuffer);
+    
+    // Cek format data terlebih dahulu
+    int commaCount = 0;
+    for (int i = 0; i < dataString.length(); i++) {
+      if (dataString.charAt(i) == ',') commaCount++;
+    }
+    
+    if (commaCount < 6) {
+      Serial.println("WARNING: Invalid data format! Expected 6 commas, got " + String(commaCount));
+      Serial.println("Raw data: " + dataString);
+      return; // Skip processing this packet
+    }
+    
+    int commaIndex1 = dataString.indexOf(',');
+    int commaIndex2 = dataString.indexOf(',', commaIndex1 + 1);
+    int commaIndex3 = dataString.indexOf(',', commaIndex2 + 1);
+    int commaIndex4 = dataString.indexOf(',', commaIndex3 + 1);
+    int commaIndex5 = dataString.indexOf(',', commaIndex4 + 1);
+    int commaIndex6 = dataString.indexOf(',', commaIndex5 + 1);
+    
+    // Debug packet parsing
+    if (millis() - lastDebugTime > 1000) { // Setiap 1 detik
+      Serial.println("Comma indices: " + String(commaIndex1) + "," + String(commaIndex2) + "," + 
+                    String(commaIndex3) + "," + String(commaIndex4) + "," + 
+                    String(commaIndex5) + "," + String(commaIndex6));
+    }
+    
+    // Parse data dengan careful error handling
+    String xValStr = dataString.substring(0, commaIndex1);
+    String yValStr = dataString.substring(commaIndex1 + 1, commaIndex2);
+    String btnGreenStr = dataString.substring(commaIndex2 + 1, commaIndex3);
+    String btnGreyStr = dataString.substring(commaIndex3 + 1, commaIndex4);
+    String btnBrownStr = dataString.substring(commaIndex4 + 1, commaIndex5);
+    String switchPressedStr = dataString.substring(commaIndex5 + 1, commaIndex6);
+    String gripperModeValStr = dataString.substring(commaIndex6 + 1);
+    
+    // Debug parsed segments
+    if (millis() - lastDebugTime > 1000) { // Setiap 1 detik
+      Serial.println("Parsed segments: X='" + xValStr + 
+                   "', Y='" + yValStr + 
+                   "', Green='" + btnGreenStr + 
+                   "', Grey='" + btnGreyStr + 
+                   "', Brown='" + btnBrownStr + 
+                   "', Switch='" + switchPressedStr + 
+                   "', Mode='" + gripperModeValStr + "'");
+      lastDebugTime = millis();
+    }
+    
+    // Convert values
+    int xVal = xValStr.toInt();
+    int yVal = yValStr.toInt();
+    bool btnGreen = (btnGreenStr == "1");
+    bool btnGrey = (btnGreyStr == "1");  
+    bool btnBrown = (btnBrownStr == "1");
+    bool switchPressed = (switchPressedStr == "1");
+    int gripperModeVal = gripperModeValStr.toInt();
+    
+    // Update nilai terakhir
+    lastXVal = xVal;
+    lastYVal = yVal;
+    lastBtnGreen = btnGreen;
+    lastBtnGrey = btnGrey;
+    lastBtnBrown = btnBrown;
+    lastSwitchPressed = switchPressed;
+    currentGripperMode = (GripperMode)gripperModeVal;
+    
+    // Simulasi kontrol motor tanpa menghubungkan hardware
+    calculateMotorSpeeds(yVal, xVal);
+    
+    // Proses perintah dari switch joystick
+    if (switchPressed) {
+      if (currentGripperMode == OPEN_AND_DOWN) {
+        // Buka gripper dan turunkan
+        gripperOpen = true;
+        liftPosition = 0; // Position down
+        Serial.println("ACTION: Opening gripper and lowering lift");
+      } else { // CLOSE_AND_UP
+        // Tutup gripper dan angkat
+        gripperOpen = false;
+        liftPosition = 180; // Position up
+        Serial.println("ACTION: Closing gripper and raising lift");
+      }
+    }
+    
+    // Debug button press events
+    if (btnGreen || btnGrey || btnBrown) {
+      Serial.print("BUTTON EVENT: ");
+      if (btnGreen) Serial.print("Green Button! ");
+      if (btnGrey) Serial.print("Grey Button! ");
+      if (btnBrown) Serial.print("Brown Button! ");
+      Serial.println();
+    }
+    
+    // Print packet details jika ada aktivitas pada joystick
+    if (abs(xVal) > 10 || abs(yVal) > 10) {
+      Serial.println("MOVEMENT: Forward=" + String(yVal) + ", Turn=" + String(xVal));
+      Serial.println("         Left Motor=" + String(leftMotorSpeed) + ", Right Motor=" + 
+                 String(rightMotorSpeed));
+    }
+  }
+  
+  // Periksa connection timeout
+  unsigned long currentTime = millis();
+  if (currentTime - lastPacketTime > 2000 && lastPacketTime > 0) {
+    // No command for 2 sec, simulated motor stop
+    calculateMotorSpeeds(0, 0);
+    Serial.println("WARNING: No packets received for 2 seconds! Motors would be stopped.");
+    lastPacketTime = currentTime; // Reset untuk menghindari pesan berulang
+  }
+  
+  // Tampilkan status secara berkala
+  if (currentTime - lastStatusTime > 3000) {
+    Serial.println("\n--- ROBOT STATUS ---");
+    Serial.println("Time: " + String(currentTime/1000.0, 1) + " seconds");
+    Serial.println("WiFi: " + String(WiFi.status() == WL_CONNECTED ? "CONNECTED" : "DISCONNECTED"));
+    if (WiFi.status() == WL_CONNECTED) {
+      Serial.println("IP Address: " + WiFi.localIP().toString());
+      Serial.println("Signal Strength: " + String(WiFi.RSSI()) + " dBm");
+    }
+    
+    Serial.println("Packets Received: " + String(packetCounter));
+    Serial.println("Last Packet: " + String((currentTime - lastPacketTime)/1000.0, 1) + " sec ago");
+
+    Serial.println("Last Values Received:");
+    Serial.println("- Joystick: X=" + String(lastXVal) + ", Y=" + String(lastYVal));
+    Serial.println("- Buttons: Green=" + String(lastBtnGreen) + 
+                  ", Grey=" + String(lastBtnGrey) + 
+                  ", Brown=" + String(lastBtnBrown) + 
+                  ", Switch=" + String(lastSwitchPressed));
+
+    Serial.println("Motor Debug (Not Connected):");
+    Serial.println("- Left Motor: " + motorSpeedToString(leftMotorSpeed));
+    Serial.println("- Right Motor: " + motorSpeedToString(rightMotorSpeed));
+    
+    Serial.println("Servo Debug (Not Connected):");
+    Serial.println("- Lift: " + String(liftPosition) + " degrees (0=down, 180=up)");
+    Serial.println("- Gripper: " + String(gripperOpen ? "OPEN" : "CLOSED"));
+    Serial.println("- Gripper Mode: " + String(currentGripperMode == OPEN_AND_DOWN ? "OPEN_AND_DOWN" : "CLOSE_AND_UP"));
+    
+    Serial.println("--------------------");
+    lastStatusTime = currentTime;
+  }
+  
+  delay(10);
+}
+
+void calculateMotorSpeeds(int forward, int turn) {
+  // Mixing algorithm for differential drive
+  int leftSpeed = forward - turn;
+  int rightSpeed = forward + turn;
+  
+  // Scale to PWM range (-255 to 255)
+  leftMotorSpeed = map(constrain(leftSpeed, -100, 100), -100, 100, -255, 255);
+  rightMotorSpeed = map(constrain(rightSpeed, -100, 100), -100, 100, -255, 255);
+  
+  // Di sini kita hanya mensimulasikan perintah motor tanpa mengirim ke hardware
+  // Untuk mengaktifkan kontrol motor, uncomment kode berikut:
+  /*
+  // Motor kiri
+  if (leftMotorSpeed >= 0) {
+    analogWrite(motorLeftA, leftMotorSpeed);
+    analogWrite(motorLeftB, 0);
+  } else {
+    analogWrite(motorLeftA, 0);
+    analogWrite(motorLeftB, -leftMotorSpeed);
+  }
+  
+  // Motor kanan
+  if (rightMotorSpeed >= 0) {
+    analogWrite(motorRightA, rightMotorSpeed);
+    analogWrite(motorRightB, 0);
+  } else {
+    analogWrite(motorRightA, 0);
+    analogWrite(motorRightB, -rightMotorSpeed);
+  }
+  */
+}
+
+String motorSpeedToString(int speed) {
+  String direction = (speed > 0) ? "FORWARD" : ((speed < 0) ? "REVERSE" : "STOP");
+  int percentage = map(abs(speed), 0, 255, 0, 100);
+  return direction + " " + String(percentage) + "%";
+}
+
