@@ -1,0 +1,60 @@
+/*
+ * Servo Position Checker
+ *
+ * This program reads the positions of two servo motors
+ * connected to pins 5 and 15 and displays them on the Serial Monitor.
+ */
+
+
+#include <ESP32Servo.h>
+
+
+// Create servo objects
+Servo servo1;  // Servo on pin 5
+Servo servo2;  // Servo on pin 15
+
+
+// Variables to store the servo positions
+int servo1Pos = 0;
+int servo2Pos = 0;
+
+
+void setup() {
+  // Initialize Serial communication
+  Serial.begin(9600);
+ 
+  // Attach the servos to their pins
+  servo1.attach(35);
+  servo2.attach(34);
+ 
+  // Print initial message
+  Serial.println("Servo Position Checker");
+  Serial.println("---------------------");
+  Serial.println("Reading position of servos on pins 5 and 15");
+}
+
+
+void loop() {
+  // Read the current position of servo1
+  servo1.write(servo1.read()); // This reads current position without changing it
+  servo1Pos = servo1.read();
+ 
+  // Read the current position of servo2
+  servo2.write(servo2.read()); // This reads current position without changing it
+  servo2Pos = servo2.read();
+ 
+  // Display the positions
+  Serial.print("Servo on gripper: ");
+  Serial.print(servo1Pos);
+  Serial.print(" degrees | Servo on lift: ");
+  Serial.print(servo2Pos);
+  Serial.println(" degrees");
+ 
+  // Wait for a moment before reading again
+  delay(1000);
+}
+
+
+
+
+
